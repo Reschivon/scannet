@@ -1,0 +1,17 @@
+**/__pycache__
+outpy
+*.jpg
+*.png
+*.npz
+*.pth
+ScanNet
+sens
+profiling
+dinov2
+*,pkl
+.vscode
+maps/
+maps2/
+random_data/*
+scenes
+runs
