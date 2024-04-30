@@ -11,13 +11,15 @@ import tempfile
 
 BASE_URL = 'http://kaldir.vc.in.tum.de/scannet/'
 TOS_URL = BASE_URL + 'ScanNet_TOS.pdf'
-FILETYPES = ['.sens', '.txt',
-             '_vh_clean.ply', '_vh_clean_2.ply',
-             '_vh_clean.segs.json', '_vh_clean_2.0.010000.segs.json',
-             '.aggregation.json', '_vh_clean.aggregation.json',
-             '_vh_clean_2.labels.ply',
-             '_2d-instance.zip', '_2d-instance-filt.zip',
-             '_2d-label.zip', '_2d-label-filt.zip']
+# FILETYPES = ['.sens', '.txt',
+#              '_vh_clean.ply', '_vh_clean_2.ply',
+#              '_vh_clean.segs.json', '_vh_clean_2.0.010000.segs.json',
+#              '.aggregation.json', '_vh_clean.aggregation.json',
+#              '_vh_clean_2.labels.ply',
+#              '_2d-instance.zip', '_2d-instance-filt.zip',
+#              '_2d-label.zip', '_2d-label-filt.zip']
+# FILETYPES = ['.sens', '_2d-label-filt.zip']
+FILETYPES = ['_2d-label-filt.zip']
 FILETYPES_TEST = ['.sens', '.txt', '_vh_clean.ply', '_vh_clean_2.ply']
 PREPROCESSED_FRAMES_FILE = ['scannet_frames_25k.zip', '5.6GB']
 TEST_FRAMES_FILE = ['scannet_frames_test.zip', '610MB']
@@ -50,12 +52,21 @@ class ProgressBar():
             self.pbar.finish()
             
 def get_release_scans(release_file):
-    scan_lines = urllib.request.urlopen(release_file)
-    # scan_lines = urllib.urlopen(release_file)
+    # scan_lines = urllib.request.urlopen(release_file)
+    # # scan_lines = urllib.urlopen(release_file)
     scans = []
-    for scan_line in scan_lines:
-        scan_id = scan_line.decode('utf8').rstrip('\n')
-        scans.append(scan_id)
+    # for scan_line in scan_lines:
+    #     scan_id = scan_line.decode('utf8').rstrip('\n')
+    #     scans.append(scan_id)
+    # return scans
+    
+    with open('scans.txt', 'r') as file:
+        for line in file:
+            # Strip any leading/trailing whitespace characters
+            scene_id = line.strip()
+            # Append the clean scene_id to the list
+            scans.append(scene_id)
+            
     return scans
 
 
@@ -94,6 +105,7 @@ def download_scan(scan_id, out_dir, file_types, use_v1_sens):
         url = BASE_URL + RELEASE + '/' + scan_id + '/' + scan_id + ft if not v1_sens else BASE_URL + RELEASES[
             V1_IDX] + '/' + scan_id + '/' + scan_id + ft
         out_file = out_dir + '/' + scan_id + ft
+        print('download file', url, out_file)
         download_file(url, out_file)
     print('Downloaded scan ' + scan_id)
 
@@ -148,7 +160,7 @@ def main():
     print(TOS_URL)
     print('***')
     print('Press any key to continue, or CTRL-C to exit.')
-    key = input('')
+    # key = input('')
 
     if args.v1:
         global RELEASE
@@ -161,6 +173,7 @@ def main():
         LABEL_MAP_FILE = LABEL_MAP_FILES[V1_IDX]
 
     release_file = BASE_URL + RELEASE + '.txt'  # 存放场景ID的文件
+    print('get v1 releases', release_file)
     release_scans = get_release_scans(release_file)  # 所有场景的ID
     file_types = FILETYPES;  # 所有文件的后缀名
     release_test_file = BASE_URL + RELEASE + '_test.txt'  # 存放测试场景ID的文件
@@ -212,7 +225,7 @@ def main():
             if not is_test_scan and not args.v1 and '.sens' in scan_file_types:
                 print(
                     'Note: ScanNet v2 uses the same .sens files as ScanNet v1: Press \'n\' to exclude downloading .sens files for each scan')
-                key = input('')
+                # key = input('')
                 if key.strip().lower() == 'n':
                     scan_file_types.remove('.sens')
             download_scan(scan_id, out_dir, scan_file_types, use_v1_sens)
@@ -226,23 +239,23 @@ def main():
             'Note that existing scan directories will be skipped. Delete partially downloaded directories to re-download.')
         print('***')
         print('Press any key to continue, or CTRL-C to exit.')
-        key = input('')
+        # key = input('')
         
         print('here', args.v1, file_types)
         
         if not args.v1 and '.sens' in file_types:
             print(
                 'Note: ScanNet v2 uses the same .sens files as ScanNet v1: Press \'n\' to exclude downloading .sens files for each scan')
-            key = input('')
-            if key.strip().lower() == 'n':
-                file_types.remove('.sens')
+            # key = input('')
+            # if key.strip().lower() == 'n':
+            #     file_types.remove('.sens')
         download_release(release_scans, out_dir_scans, file_types, use_v1_sens=True)
         
         print('b')
+        download_label_map(args.out_dir)
         
         if not args.v1:
             print("Im here")
-            download_label_map(args.out_dir)
             download_release(release_test_scans, out_dir_test_scans, file_types_test, use_v1_sens=False)
             download_file(os.path.join(BASE_URL, RELEASE_TASKS, TEST_FRAMES_FILE[0]),
                           os.path.join(out_dir_tasks, TEST_FRAMES_FILE[0]))

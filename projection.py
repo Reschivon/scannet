@@ -9,7 +9,7 @@ from torch_scatter import scatter_max
 import torch
 import warnings
 
-from dinov2 import feature_size
+from feats import feature_size
 # In the pooling function, we pass pointcloud[:, 0] which is not contiguous, so the function
 # warns that a contiguous copy has been made. We could do the copy manually but there is no
 # point 
@@ -38,7 +38,7 @@ def depth2pc(depth, K, pose, pixel_data=None):
     if pixel_data is not None:
         depth_to_rgb_scaley = pixel_data.shape[0] / depth.shape[0]
         depth_to_rgb_scalex = pixel_data.shape[1] / depth.shape[1]
-        
+                
         pixel_data = pixel_data[(y.float() * depth_to_rgb_scaley).long(), 
                                 (x.float() * depth_to_rgb_scalex).long(), :]
 
@@ -158,7 +158,7 @@ def pool_data_2dt(point_cloud, data, bin_width, device=torch.device('cpu')):
     assert flat_bin_indices.max() < len(bins_x) * len(bins_y)
     
     # Get the magnitude of each feature
-    feature_magnitude = torch.linalg.vector_norm(data, dim=1)
+    feature_magnitude = torch.linalg.vector_norm(data[:, 0:feature_size()], dim=1)
     heights = point_cloud[:, 2]
             
     # Scatter max takes a bunch of values (feature_magnitude) and indexes (flat_bin_indices) 
@@ -169,16 +169,16 @@ def pool_data_2dt(point_cloud, data, bin_width, device=torch.device('cpu')):
     # In this case, we take the feature magnitudes (values) and want to index them by 
     # the bin_indices, such that 'out' is the shape of all bins HxW and each bin contains
     # the largest magnitude
-        
+            
     max_feature, argmax_feature = scatter_max(
-        feature_magnitude,
-        flat_bin_indices,
+        feature_magnitude.to(device),
+        flat_bin_indices.to(device),
         dim_size=(len(bins_x) * len(bins_y)),
     )
     
     max_height, argmax_height = scatter_max(
-        heights,
-        flat_bin_indices,
+        heights.to(device),
+        flat_bin_indices.to(device),
         dim_size=(len(bins_x) * len(bins_y)),
     )
     
@@ -190,15 +190,17 @@ def pool_data_2dt(point_cloud, data, bin_width, device=torch.device('cpu')):
     pooled_height = max_height.reshape((len(bins_x), len(bins_y)))
     # This corresponding tensor is the index in the original pointcloud of the winning point
     pooled_index = argmax_feature.reshape((len(bins_x), len(bins_y)))
-    # When there is no data, the index defaults to max
+    # When there is no data, the index will default to max. Set such to zero
     pooled_index[pooled_index == pooled_index.max()] = 0
     data[0, :] = 0
     # Now we convert such indices to their actual feature
-    pooled_features = data[pooled_index]
+    pooled_features = data[pooled_index.to(data.device)]
+    
+    # print('pooling', data.shape, pooled_index.shape, pooled_features.shape)
     
     # print('Final map size (torch):', len(bins_y), len(bins_x))
     
-    return min_x.item(), min_y.item(), pooled_features, pooled_magnitude, pooled_height
+    return min_x.item(), min_y.item(), pooled_features.cpu(), pooled_magnitude.cpu(), pooled_height.cpu()
 
 class ProjectAndFlatten():
     def __init__(self, project_func,  bin_width=0.1):
@@ -206,7 +208,7 @@ class ProjectAndFlatten():
         self.bin_width = bin_width
         self.project_func = project_func
     
-    def project(self, pose, color, depth, chair_label, full_label, intrinsics):
+    def project(self, pose, color, depth, label, intrinsics):
         '''
         Given a sequence of RGBD captures with known pose, consolidate all into a 3D pointcloud
         and then flatten the pointcloud by the Z (ie 3rd axis). Also, pass each color image (NxMx3), 
@@ -221,24 +223,36 @@ class ProjectAndFlatten():
         # depth[isblack] = 0.0
                 
         features = self.project_func(color)
+        features = features.permute(1, 2, 0)
         
-        col_labs = torch.concat((color / 256, chair_label, full_label), axis=2)
+        # print(features.shape, chair_label.shape, full_label.shape)
         
-        pc, dat = depth2pc(depth, intrinsics, pose, features)
-        pc, lab = depth2pc(depth, intrinsics, pose, col_labs)
+        col_labs = torch.concat((color.permute(1, 2, 0) / 256, label), axis=2)
+        
+        pc, feat_dat = depth2pc(depth, intrinsics, pose, features)
+        pc, label_dat = depth2pc(depth, intrinsics, pose, col_labs)
                                 
-        data = torch.concat((dat, lab), dim=1)
+        data = torch.concat((feat_dat.cpu(), label_dat.cpu()), dim=1)
                 
         if not pc.isfinite().all():
             print('NaN data! Is pose inf?', pose)
             return
         
         # pc, dat = sparsify(pc, dat, amount=1000)
-                
-        self.maps.append(pool_data_2dt(pc, data, bin_width=self.bin_width))
         
-        # plt.imshow(self.maps[-1][-2][..., 3+feature_size():])
-        # plt.pause(0.001)
+                
+        self.maps.append(pool_data_2dt(pc, data, bin_width=self.bin_width, device='cuda'))
+                
+        # plt.imshow(self.maps[-1][-3][..., feature_size():feature_size()+3])
+        # plt.savefig('last_plt.png')
+        # plt.close()
+        
+        # from feats import pca
+        # feats = self.maps[-1][-3][..., 0:feature_size()]
+        # [feats_pca], _ = pca([feats.permute(2, 0, 1).unsqueeze(0)])
+        # plt.imshow(feats_pca[0].permute(1, 2, 0).detach().cpu())
+        # plt.savefig('last_feat.png')
+        # plt.close()
                 
         # pcs.append(pc)
         # pixel_datas.append(dat)
@@ -279,20 +293,24 @@ class ProjectAndFlatten():
             ix = int((mx - min_x) / self.bin_width)
             iy = int((my - min_y) / self.bin_width)
             
-            mask = pooled_magnitude[ix : ix + dx, 
-                                iy : iy + dy] < feat_mag
+            replace_mask = pooled_magnitude[ix : ix + dx, 
+                                            iy : iy + dy] < feat_mag
             
             pooled_magnitude[ix : ix + dx, 
-                        iy : iy + dy][mask] = feat_mag[mask]
+                             iy : iy + dy][replace_mask] = feat_mag[replace_mask]
             
             pooled_data[ix : ix + dx, 
-                        iy : iy + dy, :][mask] = map[mask]
+                        iy : iy + dy, :][replace_mask] = map[replace_mask]
+            
+            # Special case for label
+            pooled_data[ix : ix + dx, iy : iy + dy, feature_size()+3:] = \
+                        torch.max(pooled_data[ix : ix + dx, iy : iy + dy, feature_size()+3:], map[..., feature_size()+3:])
             
             pooled_height[ix : ix + dx, 
                           iy : iy + dy] = torch.max(pooled_height[ix : ix + dx, iy : iy + dy],
                                                     height)
         
-        print('Flattened!')
+        print('Stackened!')
         
         return pooled_data, pooled_height
         
