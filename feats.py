@@ -70,7 +70,7 @@ def plot_lang_heatmaps(model, hr_feats, text_query):
 device = 'cuda'
 
 from termcolor import colored
-def green(text): print(colored(text, 'green'))
+def green(*args): print(colored(' '.join(args), 'green'))
 
 upsampler = None
 
@@ -110,7 +110,7 @@ def feature_size():
     return 512
 
 def infer(image):
-    assert image.shape[0] == 3 and image.shape[1] == image.shape[2], str(image.shape)
+    # assert image.shape[0] == 3 and image.shape[1] == image.shape[2], str(image.shape)
     
     if image.max() > 1:
         image = image / 256
@@ -147,15 +147,15 @@ def infer(image):
 to_tensor = T.ToTensor()
     
 if __name__ == '__main__':
-    image_path = "FeatUp/sample-images/plant.png"
+    image_path = "scenes/scene0000_00_data/color/5100.jpg"
     image = Image.open(image_path)
-    image_tensor = to_tensor(image)
-    
+    image_tensor = image_transform(to_tensor(image))
+        
     hr_feats = infer(image_tensor)
+    
+    plot_feats(image_tensor, hr_feats, hr_feats)
 
-    plot_feats(image_tensor, hr_feats[0], hr_feats[0])
-
-    text_queries = ["plant", "stone", "pot"]
+    text_queries = ["stool"]
 
     for text_query in text_queries:
-        plot_lang_heatmaps(upsampler.model, hr_feats[0], text_query)
+        plot_lang_heatmaps(upsampler.model, hr_feats, text_query)

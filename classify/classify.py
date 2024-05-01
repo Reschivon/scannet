@@ -28,7 +28,7 @@ def apply_crf(pairwise_energy, similarity, num_classes=2):
     # d.addPairwiseGaussian(sxy=40, compat=3, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC)
     
     d.addPairwiseBilateral(sxy=10, srgb=13, rgbim=pairwise_energy, 
-                           compat=2, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC)
+                           compat=3, kernel=dcrf.DIAG_KERNEL, normalization=dcrf.NORMALIZE_SYMMETRIC)
     # d.addPairwiseEnergy(pairwise_energy)
     # You could integrate 'text_feats' as additional pairwise terms, e.g.,
     # d.addPairwiseBilateral(sxy=(10, 10), srgb=(5, 5, 5), rgbim=text_feats, compat=10)
